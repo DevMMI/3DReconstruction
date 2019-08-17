@@ -2,13 +2,11 @@
 #include <Eigen/Dense>
 #include <opencv2/opencv.hpp>
 #include <opencv2/xfeatures2d.hpp>
-#include <Eigen2CV.h>
 #include <fstream>
-
+#include "kernels.h"
 using namespace std;
 using namespace cv;
 using namespace Eigen;
-using namespace octane;
 
 template <typename T>
 void out(vector<T> v){
@@ -43,7 +41,7 @@ void write_as_csv(Mat m){
 int main()
 {
     cout << "Hello this is C++" << endl;
-
+    myfunc();
     string i = "/home/mohamedisse/Documents/ComputerVision/reconstruction/samples/stereo_front_left.jpg";
     string j = "/home/mohamedisse/Documents/ComputerVision/reconstruction/samples/stereo_front_right.jpg";
     Mat input_fl = imread(i, 1);
@@ -83,8 +81,8 @@ int main()
     sift->detect( smoothed_fr, keypoints_2 );
 
     // sample best keypoints
-    //KeyPointsFilter::retainBest(keypoints_1, 50);
-    //KeyPointsFilter::retainBest(keypoints_2, 50);
+    //KeyPointsFilter::retainBest(keypoints_1, 500);
+    //KeyPointsFilter::retainBest(keypoints_2, 500);
 
     //cout<<"rows "<<keypoints_1.size()<<", cols "<<keypoints_2.size()<<endl;
 
@@ -105,20 +103,39 @@ int main()
       first_img_pts.push_back(keypoints_1[match.queryIdx].pt); // keypoints_1
       second_img_pts.push_back(keypoints_2[match.trainIdx].pt); // keypoints_2
     }
+
     Mat ransac_mask;
-    Mat fund = findFundamentalMat(first_img_pts, second_img_pts, FM_RANSAC, 3.0, 0.99, ransac_mask);
+    Mat fund = findFundamentalMat(first_img_pts, second_img_pts, FM_RANSAC, 3.0, 0.9999, ransac_mask);
 
     cout<<"first image pts "<<first_img_pts.size()<<endl;
     cout<<"ransac mask rows "<<ransac_mask.rows<<", cols "<<ransac_mask.cols;
     write_as_csv(ransac_mask);
     // draw matches
     //Mat matched_img;
-    //drawMatches(smoothed_fl, keypoints_1, smoothed_fr, keypoints_2, matches, matched_img);
+
+    std::vector< DMatch > matches_filtered;
+    std::vector<KeyPoint> keypoints_1_filt, keypoints_2_filt;
+    int it = 0;
+    for(int i = 0; i < first_img_pts.size(); i++){
+      if(ransac_mask.at<float>(i, 1) ){
+        KeyPoint k1(first_img_pts[i], 1.0);
+        KeyPoint k2(second_img_pts[i], 1.0);
+        keypoints_1_filt.push_back(k1);
+        keypoints_2_filt.push_back(k2);
+
+        DMatch d(it, it, 1);
+        matches_filtered.push_back(d);
+        it++;
+      }
+    }
+    Mat ransac_matched_img;
+
+    drawMatches(smoothed_fl, keypoints_1_filt, smoothed_fr, keypoints_2_filt, matches_filtered, ransac_matched_img);
 
     // visualize
     //write_as_csv(edges);
     //visualize(edges);
-    //imwrite("matched.jpg", matched_img);
+    imwrite("ransac_matched_img_good.jpg", ransac_matched_img);
     //imwrite("eg2.jpg", undistorted_fr);
 
 
