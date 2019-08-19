@@ -73,30 +73,61 @@ int main()
     // finding good correspondences
     // Mat edges;
     // Canny(undistorted_fr, edges, 255/3, 255, 3, true);
-    cv::Ptr<Feature2D> sift = xfeatures2d::SIFT::create();
-
-    //-- Step 1: Detect the keypoints:
     std::vector<KeyPoint> keypoints_1, keypoints_2;
-    sift->detect( smoothed_fl, keypoints_1 );
-    sift->detect( smoothed_fr, keypoints_2 );
+    Mat descriptors_1, descriptors_2;
+    if(true){
+      // detect SIFT keypoints
+      Ptr<Feature2D> sift = xfeatures2d::SIFT::create();
+
+      // detect using sift features
+      sift->detect( smoothed_fl, keypoints_1 );
+      sift->detect( smoothed_fr, keypoints_2 );
+
+      //-- Calculate descriptors (feature vectors)
+      sift->compute( smoothed_fl, keypoints_1, descriptors_1 );
+      sift->compute( smoothed_fr, keypoints_2, descriptors_2 );
+    }
+
+    else{
+      // detect SURF keypoints
+      printf("using SURF\n");
+      int minHessian = 400;
+
+      Ptr<xfeatures2d::SURF> detector = xfeatures2d::SURF::create( minHessian );
+
+      detector->detectAndCompute( smoothed_fl, noArray(), keypoints_1, descriptors_1 );
+      detector->detectAndCompute( smoothed_fr, noArray(), keypoints_2, descriptors_2 );
+    }
 
     // sample best keypoints
-    //KeyPointsFilter::retainBest(keypoints_1, 500);
-    //KeyPointsFilter::retainBest(keypoints_2, 500);
+    KeyPointsFilter::removeDuplicated(keypoints_1);
+    KeyPointsFilter::removeDuplicated(keypoints_2);
 
     //cout<<"rows "<<keypoints_1.size()<<", cols "<<keypoints_2.size()<<endl;
 
-    //-- Step 2: Calculate descriptors (feature vectors)
-    Mat descriptors_1, descriptors_2;
-    sift->compute( smoothed_fl, keypoints_1, descriptors_1 );
-    sift->compute( smoothed_fr, keypoints_2, descriptors_2 );
+
 
     //cout<<"rows "<<descriptors_1.rows<<", cols "<<descriptors_1.cols<<endl;
     //-- Step 3: Matching descriptor vectors using BFMatcher :
+    vector<DMatch> matches;
     BFMatcher matcher;
-    std::vector< DMatch > matches;
-    matcher.match( descriptors_1, descriptors_2, matches );
+    if(true){
+      // knn matcher
+      vector<vector<DMatch>> vect_matches;
+      matcher.knnMatch( descriptors_1, descriptors_2, vect_matches, 2 );
 
+      for (int i = 0; i < vect_matches.size(); ++i){
+            const float ratio = 0.8; // As in Lowe's paper; can be tuned
+            if (vect_matches[i][0].distance < ratio * vect_matches[i][1].distance)
+            {
+                matches.push_back(vect_matches[i][0]);
+            }
+      }
+
+    }
+    else{
+      matcher.match( descriptors_1, descriptors_2, matches );
+    }
     vector<Point2f> first_img_pts;
     vector<Point2f> second_img_pts;
     for(auto& match : matches){
@@ -105,11 +136,11 @@ int main()
     }
 
     Mat ransac_mask;
-    Mat fund = findFundamentalMat(first_img_pts, second_img_pts, FM_RANSAC, 3.0, 0.9999, ransac_mask);
+    Mat fund = findFundamentalMat(first_img_pts, second_img_pts, FM_RANSAC, 0.1, 0.9999, ransac_mask);
 
     cout<<"first image pts "<<first_img_pts.size()<<endl;
     cout<<"ransac mask rows "<<ransac_mask.rows<<", cols "<<ransac_mask.cols;
-    write_as_csv(ransac_mask);
+    write_as_csv(fund);
     // draw matches
     //Mat matched_img;
 
@@ -117,7 +148,7 @@ int main()
     std::vector<KeyPoint> keypoints_1_filt, keypoints_2_filt;
     int it = 0;
     for(int i = 0; i < first_img_pts.size(); i++){
-      if(ransac_mask.at<float>(i, 1) ){
+      if(ransac_mask.at<double>(i, 1) ){
         KeyPoint k1(first_img_pts[i], 1.0);
         KeyPoint k2(second_img_pts[i], 1.0);
         keypoints_1_filt.push_back(k1);
@@ -128,15 +159,30 @@ int main()
         it++;
       }
     }
-    Mat ransac_matched_img;
+    //Mat ransac_matched_img;
 
-    drawMatches(smoothed_fl, keypoints_1_filt, smoothed_fr, keypoints_2_filt, matches_filtered, ransac_matched_img);
+    //drawMatches(smoothed_fl, keypoints_1_filt, smoothed_fr, keypoints_2_filt, matches_filtered, ransac_matched_img);
+    Mat R = (Mat_<double>(3,3) << -1.69452405498718E-05,	-0.0002184853,	0.0114668903, 0.0020403973,	-0.0001182853,	0.0096541449, -0.0103132624,	-0.0017317883,	-2.45211266265656E-07);
+    Mat t = (Mat_<double>(3,1) << 0.00161991603, -0.30062434169, -0.00096649829);
+    //vector<double> T = {0.00161991603, -0.30062434169, -0.00096649829};
+
+    Mat r1, r2, p1, p2, q;
+    stereoRectify(camera_mat_fl, dist_coeff_fl, camera_mat_fr, dist_coeff_fr, cv::Size(2056, 2464),  R, t, r1, r2, p1, p2, q);
+
+    Mat l_rectified, r_rectified;
+    undistortPoints(input_fl, l_rectified, camera_mat_fl, dist_coeff_fl, r1, p1);
+    undistortPoints(input_fr, r_rectified, camera_mat_fr, dist_coeff_fr, r2, p2);
+
+    //Mat pt = Mat(1,3, CV_64F, float(0));
+    //pt.at<float>(0,0) =
+    //void cv::multiply( cv::InputArray src1, // First input array cv::InputArray src2, // Second input array cv::OutputArray dst, // Result array double scale = 1.0, // overall scale factor int dtype = -1 // Output type for result array);
 
     // visualize
     //write_as_csv(edges);
     //visualize(edges);
-    imwrite("ransac_matched_img_good.jpg", ransac_matched_img);
-    //imwrite("eg2.jpg", undistorted_fr);
+    //imwrite("ransac_matched_img_knn_sift_narrow.jpg", ransac_matched_img);
+    imwrite("l_rectified.jpg", l_rectified);
+    imwrite("r_rectified.jpg", r_rectified);
 
 
 
