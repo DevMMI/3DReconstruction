@@ -14,7 +14,7 @@ set(LIB_TYPE STATIC)
 
 cuda_add_library(kernels_lib ${LIB_TYPE} kernels.cu)
 
-add_executable(reconstruct reconstruct.cpp kernels.h)
+add_executable(reconstruct main.cpp kernels.h )
 add_dependencies(reconstruct kernels_lib)
 
 target_include_directories(reconstruct PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
